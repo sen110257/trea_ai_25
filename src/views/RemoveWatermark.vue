@@ -163,6 +163,31 @@ let canvasHeight = 0
 let displayScale = 1
 let offsetX = 0
 let offsetY = 0
+let canvasInitRetryCount = 0
+
+const safeInitCanvas = async () => {
+  if (!mainCanvas.value || !overlayCanvas.value || !imgElement.value) {
+    if (canvasInitRetryCount < 5) {
+      canvasInitRetryCount++
+      setTimeout(safeInitCanvas, 50)
+    }
+    return
+  }
+  
+  const container = mainCanvas.value.parentElement
+  const maxWidth = container.clientWidth
+  
+  if (maxWidth <= 0) {
+    if (canvasInitRetryCount < 5) {
+      canvasInitRetryCount++
+      setTimeout(safeInitCanvas, 100)
+    }
+    return
+  }
+  
+  canvasInitRetryCount = 0
+  initCanvas()
+}
 
 const initFromGlobalImage = async () => {
   if (imageStore.hasGlobalImage && !originalImage.value) {
@@ -175,7 +200,8 @@ const initFromGlobalImage = async () => {
     imageStore.setOriginalImage(dataURL)
     
     await nextTick()
-    initCanvas()
+    canvasInitRetryCount = 0
+    safeInitCanvas()
     
     showToast('已载入全局图片', 'success')
   }
@@ -209,7 +235,8 @@ const onFilesSelected = async (files) => {
   imageStore.setGlobalImage(file.dataURL, file.name, file.file?.size)
   
   await nextTick()
-  initCanvas()
+  canvasInitRetryCount = 0
+  safeInitCanvas()
   
   showToast('图片加载成功，请选择需要去除的区域', 'success')
 }
@@ -219,18 +246,25 @@ const onUploadError = (invalidFiles) => {
 }
 
 const initCanvas = () => {
-  if (!mainCanvas.value || !overlayCanvas.value || !imgElement.value) return
+  if (!mainCanvas.value || !overlayCanvas.value || !imgElement.value) {
+    console.warn('initCanvas: missing required elements')
+    return
+  }
   
   const img = imgElement.value
   const container = mainCanvas.value.parentElement
-  const maxWidth = container.clientWidth
+  let maxWidth = container.clientWidth
   const maxHeight = 500
+  
+  if (maxWidth <= 0) {
+    maxWidth = 600
+  }
   
   canvasWidth = img.width
   canvasHeight = img.height
   
   const ratio = Math.min(maxWidth / canvasWidth, maxHeight / canvasHeight, 1)
-  displayScale = ratio
+  displayScale = Math.max(ratio, 0.01)
   const displayWidth = Math.floor(canvasWidth * displayScale)
   const displayHeight = Math.floor(canvasHeight * displayScale)
   
@@ -238,19 +272,27 @@ const initCanvas = () => {
   mainCanvas.value.height = canvasHeight
   mainCanvas.value.style.width = displayWidth + 'px'
   mainCanvas.value.style.height = displayHeight + 'px'
+  mainCanvas.value.style.display = 'block'
   
   overlayCanvas.value.width = canvasWidth
   overlayCanvas.value.height = canvasHeight
   overlayCanvas.value.style.width = displayWidth + 'px'
   overlayCanvas.value.style.height = displayHeight + 'px'
+  overlayCanvas.value.style.display = 'block'
   
   mainCtx = mainCanvas.value.getContext('2d')
   overlayCtx = overlayCanvas.value.getContext('2d')
+  
+  if (!mainCtx || !overlayCtx) {
+    console.error('initCanvas: failed to get canvas context')
+    return
+  }
   
   mainCtx.clearRect(0, 0, canvasWidth, canvasHeight)
   mainCtx.drawImage(img, 0, 0)
   
   clearOverlay()
+  console.log('Canvas initialized:', canvasWidth, 'x', canvasHeight, 'displayScale:', displayScale)
 }
 
 const clearOverlay = () => {

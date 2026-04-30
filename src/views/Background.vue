@@ -152,6 +152,85 @@
         </div>
 
         <div class="control-group">
+          <label class="control-label">智能抠图模式</label>
+          <div class="mode-options">
+            <button 
+              v-for="mode in removeBgModes" 
+              :key="mode.value"
+              class="mode-btn"
+              :class="{ active: removeBgMode === mode.value }"
+              @click="removeBgMode = mode.value; applyBackground()"
+            >
+              {{ mode.label }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="removeBgMode === 'auto'" class="control-group">
+          <label class="control-label">
+            抠图敏感度: <span class="control-value">{{ Math.round(removeBgThreshold * 100) }}%</span>
+          </label>
+          <input 
+            type="range" 
+            v-model.number="removeBgThreshold"
+            min="0.1"
+            max="0.9"
+            step="0.05"
+            class="range"
+            @input="applyBackground()"
+          />
+          <div class="range-tips">
+            <span>更多保留</span>
+            <span>更多去除</span>
+          </div>
+        </div>
+
+        <div v-if="removeBgMode === 'color'" class="control-group">
+          <label class="control-label">选择要去除的背景颜色</label>
+          <div class="color-picker-container">
+            <div 
+              v-for="color in bgColors" 
+              :key="color.value"
+              class="color-swatch"
+              :class="{ active: removeBgColor === color.value }"
+              :style="{ background: color.value }"
+              @click="removeBgColor = color.value; applyBackground()"
+            >
+              <span v-if="removeBgColor === color.value" class="color-check">✓</span>
+            </div>
+            <div class="color-input-group">
+              <input 
+                type="color" 
+                v-model="removeBgColor"
+                class="color-picker"
+                @input="applyBackground()"
+              />
+              <input 
+                type="text" 
+                v-model="removeBgColor"
+                class="input color-hex"
+                @change="applyBackground()"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div v-if="removeBgMode === 'color'" class="control-group">
+          <label class="control-label">
+            颜色容差: <span class="control-value">{{ removeBgTolerance }}</span>
+          </label>
+          <input 
+            type="range" 
+            v-model.number="removeBgTolerance"
+            min="0"
+            max="100"
+            step="5"
+            class="range"
+            @input="applyBackground()"
+          />
+        </div>
+
+        <div class="control-group">
           <label class="control-label">边缘平滑度</label>
           <input 
             type="range" 
@@ -242,10 +321,29 @@ const gradientEnd = ref('#764ba2')
 const backgroundImage = ref(null)
 const edgeSmooth = ref(2)
 
+const removeBgMode = ref('auto')
+const removeBgThreshold = ref(0.5)
+const removeBgColor = ref('#ffffff')
+const removeBgTolerance = ref(30)
+
 const backgroundTypes = [
   { label: '纯色', value: 'solid' },
   { label: '渐变', value: 'gradient' },
   { label: '图片', value: 'image' }
+]
+
+const removeBgModes = [
+  { label: '自动识别', value: 'auto' },
+  { label: '颜色键控', value: 'color' },
+  { label: '关闭（仅透明图）', value: 'off' }
+]
+
+const bgColors = [
+  { label: '白色', value: '#ffffff' },
+  { label: '黑色', value: '#000000' },
+  { label: '绿色', value: '#00ff00' },
+  { label: '蓝色', value: '#0000ff' },
+  { label: '红色', value: '#ff0000' }
 ]
 
 const presetColors = [
@@ -319,7 +417,12 @@ const applyBackground = async () => {
       gradientStart: gradientStart.value,
       gradientEnd: gradientEnd.value,
       backgroundImage: backgroundImage.value,
-      edgeSmooth: edgeSmooth.value
+      edgeSmooth: edgeSmooth.value,
+      autoRemoveBg: removeBgMode.value !== 'off',
+      removeBgMethod: removeBgMode.value,
+      removeBgThreshold: removeBgThreshold.value,
+      removeBgColor: removeBgColor.value,
+      removeBgTolerance: removeBgTolerance.value
     }
     
     const result = await replaceBackground(imgElement.value, options)
