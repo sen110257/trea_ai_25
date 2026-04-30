@@ -2,6 +2,10 @@ import { defineStore } from 'pinia'
 
 export const useImageStore = defineStore('image', {
   state: () => ({
+    globalImage: null,
+    globalImageName: null,
+    globalImageFileSize: null,
+    
     originalImage: null,
     processedImage: null,
     history: [],
@@ -9,7 +13,23 @@ export const useImageStore = defineStore('image', {
     maxHistorySize: 20
   }),
 
+  getters: {
+    hasGlobalImage: (state) => !!state.globalImage
+  },
+
   actions: {
+    setGlobalImage(imageData, name = null, fileSize = null) {
+      this.globalImage = imageData
+      this.globalImageName = name
+      this.globalImageFileSize = fileSize
+    },
+
+    clearGlobalImage() {
+      this.globalImage = null
+      this.globalImageName = null
+      this.globalImageFileSize = null
+    },
+
     setOriginalImage(imageData) {
       this.originalImage = imageData
       this.processedImage = imageData

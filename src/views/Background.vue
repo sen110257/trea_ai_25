@@ -185,7 +185,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject } from 'vue'
+import { ref, computed, inject, onMounted, watch } from 'vue'
 import { useImageStore } from '@/stores/image'
 import { useHistoryStore } from '@/stores/history'
 import { 
@@ -209,6 +209,31 @@ const originalImage = ref(null)
 const processedImage = ref(null)
 const imgElement = ref(null)
 const bgFileInput = ref(null)
+
+const initFromGlobalImage = async () => {
+  if (imageStore.hasGlobalImage && !originalImage.value) {
+    const dataURL = imageStore.globalImage
+    originalImage.value = dataURL
+    
+    const img = await dataURLToImage(dataURL)
+    imgElement.value = img
+    
+    imageStore.setOriginalImage(dataURL)
+    applyBackground()
+    
+    showToast('已载入全局图片', 'success')
+  }
+}
+
+onMounted(() => {
+  initFromGlobalImage()
+})
+
+watch(() => imageStore.globalImage, () => {
+  if (!originalImage.value) {
+    initFromGlobalImage()
+  }
+}, { immediate: false })
 
 const backgroundType = ref('solid')
 const solidColor = ref('#ffffff')
@@ -256,6 +281,7 @@ const onFilesSelected = async (files) => {
   imgElement.value = img
   
   imageStore.setOriginalImage(file.dataURL)
+  imageStore.setGlobalImage(file.dataURL, file.name, file.file?.size)
   applyBackground()
   
   showToast('图片加载成功', 'success')
@@ -371,7 +397,7 @@ const handleExport = async () => {
     
     historyStore.addRecord({
       functionName: '换底色',
-      thumbnail: processedImage.value.slice(0, 500)
+      fullImage: processedImage.value
     })
     
     showToast('导出成功', 'success')

@@ -22,10 +22,14 @@
       <UploadArea
         :multiple="true"
         title="拖拽或点击上传图片"
-        hint="支持 JPG、PNG、WebP、GIF，单张最大 50MB"
+        hint="支持 JPG、PNG、WebP、GIF，单张最大 50MB。上传后可在任意功能页面使用"
         @files-selected="onFilesSelected"
         @error="onUploadError"
       />
+      <div v-if="imageStore.hasGlobalImage" class="upload-info">
+        <span class="info-text">✓ 已上传图片，可直接进入功能页面使用</span>
+        <span class="info-name">{{ imageStore.globalImageName || '图片' }}</span>
+      </div>
     </div>
 
     <div class="features-section">
@@ -60,15 +64,20 @@
           v-for="record in historyStore.records" 
           :key="record.id"
           class="history-card card glass"
+          @click="reuseRecord(record)"
         >
           <div class="history-preview">
-            <img :src="record.thumbnail" :alt="record.functionName" />
+            <img v-if="record.fullImage" :src="record.fullImage" :alt="record.functionName" />
+            <div v-else class="no-thumbnail">
+              <span class="no-image-icon">🖼️</span>
+              <span class="no-image-text">无预览</span>
+            </div>
           </div>
           <div class="history-info">
             <span class="history-function">{{ record.functionName }}</span>
             <span class="history-time">{{ formatTime(record.createdAt) }}</span>
           </div>
-          <button class="history-remove" @click="removeRecord(record.id)">
+          <button class="history-remove" @click.stop="removeRecord(record.id)">
             ✕
           </button>
         </div>
@@ -80,10 +89,12 @@
 <script setup>
 import { inject, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useImageStore } from '@/stores/image'
 import { useHistoryStore } from '@/stores/history'
 import UploadArea from '@/components/UploadArea.vue'
 
 const router = useRouter()
+const imageStore = useImageStore()
 const historyStore = useHistoryStore()
 const showToast = inject('showToast')
 
@@ -141,7 +152,16 @@ const goToFeature = (path) => {
 }
 
 const onFilesSelected = (files) => {
-  showToast(`已选择 ${files.length} 张图片，选择功能开始处理`, 'success')
+  if (files.length === 0) return
+  
+  const firstFile = files[0]
+  imageStore.setGlobalImage(
+    firstFile.dataURL, 
+    firstFile.name,
+    firstFile.file?.size
+  )
+  
+  showToast(`已选择 ${files.length} 张图片。第一张已保存到全局，可在任意功能页面使用`, 'success')
 }
 
 const onUploadError = (invalidFiles) => {
@@ -166,6 +186,15 @@ const removeRecord = (id) => {
 const clearHistory = () => {
   historyStore.clearAll()
   showToast('已清空历史记录', 'info')
+}
+
+const reuseRecord = (record) => {
+  if (record.fullImage) {
+    imageStore.setGlobalImage(record.fullImage, '历史图片')
+    showToast('已加载历史图片，可进入功能页面使用', 'success')
+  } else {
+    showToast('该历史记录无法复用图片', 'warning')
+  }
 }
 </script>
 
@@ -228,6 +257,37 @@ const clearHistory = () => {
   max-width: 800px;
   margin: 0 auto;
   width: 100%;
+}
+
+.upload-info {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-md);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.info-text {
+  color: #059669;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.info-name {
+  color: #047857;
+  font-size: 13px;
+  background: rgba(16, 185, 129, 0.15);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .features-section {
@@ -340,6 +400,30 @@ const clearHistory = () => {
   object-fit: cover;
 }
 
+.no-thumbnail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.no-image-icon {
+  font-size: 1.5rem;
+  opacity: 0.5;
+}
+
+.no-image-text {
+  font-size: 11px;
+  color: var(--text-light);
+}
+
 .history-info {
   display: flex;
   flex-direction: column;
@@ -402,6 +486,15 @@ const clearHistory = () => {
   .feature-tag {
     font-size: 12px;
     padding: 4px 12px;
+  }
+
+  .upload-info {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .info-name {
+    max-width: 100%;
   }
 
   .features-grid {

@@ -7,7 +7,7 @@ export async function replaceBackground(img, options = {}) {
     gradientStart = '#667eea',
     gradientEnd = '#764ba2',
     backgroundImage = null,
-    tolerance = 30
+    edgeSmooth = 2
   } = options
 
   const canvas = document.createElement('canvas')
@@ -39,35 +39,52 @@ export async function replaceBackground(img, options = {}) {
   }
 
   const tempCanvas = imageToCanvas(img)
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const tempCtx = tempCanvas.getContext('2d')
   const tempData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height)
-
-  const data = imageData.data
   const tempPixelData = tempData.data
 
-  for (let i = 0; i < tempPixelData.length; i += 4) {
-    const r = tempPixelData[i]
-    const g = tempPixelData[i + 1]
-    const b = tempPixelData[i + 2]
-    const a = tempPixelData[i + 3]
-
-    if (a > 0) {
-      const edges = detectEdges(tempPixelData, i, canvas.width, canvas.height)
-      const antiAliasedAlpha = edges ? Math.max(a, edges.alpha) : a
-      
-      data[i] = r
-      data[i + 1] = g
-      data[i + 2] = b
-      data[i + 3] = antiAliasedAlpha
+  let hasTransparency = false
+  for (let i = 3; i < tempPixelData.length; i += 4) {
+    if (tempPixelData[i] < 255) {
+      hasTransparency = true
+      break
     }
   }
 
-  ctx.putImageData(imageData, 0, 0)
+  if (hasTransparency && edgeSmooth > 0) {
+    const tempImageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const bgData = tempImageData.data
 
-  ctx.globalCompositeOperation = 'destination-over'
-  ctx.drawImage(img, 0, 0)
-  ctx.globalCompositeOperation = 'source-over'
+    for (let i = 0; i < tempPixelData.length; i += 4) {
+      const srcR = tempPixelData[i]
+      const srcG = tempPixelData[i + 1]
+      const srcB = tempPixelData[i + 2]
+      const srcA = tempPixelData[i + 3]
+
+      if (srcA > 0) {
+        const alpha = srcA / 255
+        
+        if (alpha < 1) {
+          bgData[i] = Math.round(srcR * alpha + bgData[i] * (1 - alpha))
+          bgData[i + 1] = Math.round(srcG * alpha + bgData[i + 1] * (1 - alpha))
+          bgData[i + 2] = Math.round(srcB * alpha + bgData[i + 2] * (1 - alpha))
+        } else {
+          bgData[i] = srcR
+          bgData[i + 1] = srcG
+          bgData[i + 2] = srcB
+        }
+        bgData[i + 3] = 255
+      }
+    }
+
+    if (edgeSmooth > 0) {
+      smoothEdges(bgData, canvas.width, canvas.height, edgeSmooth)
+    }
+
+    ctx.putImageData(tempImageData, 0, 0)
+  } else {
+    ctx.drawImage(img, 0, 0)
+  }
 
   const dataURL = canvasToDataURL(canvas)
 
@@ -80,35 +97,67 @@ export async function replaceBackground(img, options = {}) {
   }
 }
 
-function detectEdges(pixelData, index, width, height) {
-  const x = (index / 4) % width
-  const y = Math.floor((index / 4) / width)
+function smoothEdges(data, width, height, radius) {
+  const tempData = new Uint8ClampedArray(data)
+  const kernelSize = radius * 2 + 1
   
-  const neighbors = [
-    [-1, -1], [0, -1], [1, -1],
-    [-1, 0],           [1, 0],
-    [-1, 1],  [0, 1],  [1, 1]
-  ]
-
-  let edgeAlpha = 0
-  let isEdge = false
-
-  for (const [dx, dy] of neighbors) {
-    const nx = x + dx
-    const ny = y + dy
-    
-    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-      const nIndex = (ny * width + nx) * 4
-      const nAlpha = pixelData[nIndex + 3]
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4
+      const currentAlpha = tempData[idx + 3]
       
-      if (nAlpha < 255) {
-        isEdge = true
-        edgeAlpha = Math.max(edgeAlpha, pixelData[index + 3])
+      let hasNeighborTransparent = false
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = x + dx
+          const ny = y + dy
+          
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+            const nidx = (ny * width + nx) * 4
+            if (tempData[nidx + 3] < 200) {
+              hasNeighborTransparent = true
+              break
+            }
+          }
+        }
+        if (hasNeighborTransparent) break
+      }
+      
+      if (hasNeighborTransparent && currentAlpha > 0) {
+        let totalR = 0
+        let totalG = 0
+        let totalB = 0
+        let totalWeight = 0
+        
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const nx = x + dx
+            const ny = y + dy
+            const dist = Math.sqrt(dx * dx + dy * dy)
+            
+            if (dist <= radius && nx >= 0 && nx < width && ny >= 0 && ny < height) {
+              const nidx = (ny * width + nx) * 4
+              const weight = 1 - (dist / radius) * 0.5
+              
+              if (tempData[nidx + 3] > 100) {
+                totalR += tempData[nidx] * weight
+                totalG += tempData[nidx + 1] * weight
+                totalB += tempData[nidx + 2] * weight
+                totalWeight += weight
+              }
+            }
+          }
+        }
+        
+        if (totalWeight > 0) {
+          data[idx] = Math.round(totalR / totalWeight)
+          data[idx + 1] = Math.round(totalG / totalWeight)
+          data[idx + 2] = Math.round(totalB / totalWeight)
+          data[idx + 3] = 255
+        }
       }
     }
   }
-
-  return isEdge ? { alpha: edgeAlpha } : null
 }
 
 export function parseColor(hex) {
