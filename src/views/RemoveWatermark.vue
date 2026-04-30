@@ -164,6 +164,38 @@ let displayScale = 1
 let offsetX = 0
 let offsetY = 0
 
+const initFromGlobalImage = async () => {
+  if (imageStore.hasGlobalImage && !originalImage.value) {
+    const dataURL = imageStore.globalImage
+    originalImage.value = dataURL
+    
+    const img = await dataURLToImage(dataURL)
+    imgElement.value = img
+    
+    imageStore.setOriginalImage(dataURL)
+    
+    await nextTick()
+    initCanvas()
+    
+    showToast('已载入全局图片', 'success')
+  }
+}
+
+onMounted(() => {
+  initFromGlobalImage()
+  window.addEventListener('resize', () => {
+    if (imgElement.value) {
+      initCanvas()
+    }
+  })
+})
+
+watch(() => imageStore.globalImage, () => {
+  if (!originalImage.value) {
+    initFromGlobalImage()
+  }
+}, { immediate: false })
+
 const onFilesSelected = async (files) => {
   if (files.length === 0) return
   
@@ -174,6 +206,7 @@ const onFilesSelected = async (files) => {
   imgElement.value = img
   
   imageStore.setOriginalImage(file.dataURL)
+  imageStore.setGlobalImage(file.dataURL, file.name, file.file?.size)
   
   await nextTick()
   initCanvas()
@@ -444,7 +477,7 @@ const handleExport = async () => {
     
     historyStore.addRecord({
       functionName: '去水印',
-      thumbnail: processedImage.value.slice(0, 500)
+      fullImage: processedImage.value
     })
     
     showToast('导出成功', 'success')
@@ -452,14 +485,6 @@ const handleExport = async () => {
     showToast('导出失败', 'error')
   }
 }
-
-onMounted(() => {
-  window.addEventListener('resize', () => {
-    if (imgElement.value) {
-      initCanvas()
-    }
-  })
-})
 </script>
 
 <style scoped>

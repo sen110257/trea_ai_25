@@ -1,6 +1,6 @@
 <template>
   <div class="compress-page">
-    <div v-if="!originalImages.length" class="upload-container">
+    <div v-if="!originalImages.length && !imageStore.hasGlobalImage" class="upload-container">
       <UploadArea
         :multiple="true"
         title="上传图片进行压缩"
@@ -134,7 +134,7 @@
       <ActionBar
         :can-undo="false"
         :can-redo="false"
-        :has-image="originalImages.length > 0"
+        :has-image="originalImages.length > 0 || imageStore.hasGlobalImage"
         :has-processed-image="processedImages.some(i => i.processed)"
         @reset="clearAll"
         @copy="copyAll"
@@ -145,15 +145,17 @@
 </template>
 
 <script setup>
-import { ref, inject, computed } from 'vue'
+import { ref, computed, inject, onMounted, watch } from 'vue'
 import { useImageStore } from '@/stores/image'
 import { useHistoryStore } from '@/stores/history'
 import { 
+  fileToDataURL,
   dataURLToImage, 
   dataURLToBlob, 
   downloadBlob, 
   copyImageToClipboard,
-  generateFilename
+  generateFilename,
+  formatFileSize
 } from '@/utils/image'
 import { compressImage } from '@/utils/compress'
 import UploadArea from '@/components/UploadArea.vue'
@@ -189,13 +191,53 @@ const sizeLimits = [
   { label: '800px', value: 800 }
 ]
 
+const initFromGlobalImage = async () => {
+  if (imageStore.hasGlobalImage && originalImages.value.length === 0) {
+    const globalImage = imageStore.globalImage
+    const globalName = imageStore.globalImageName || '图片'
+    const globalSize = imageStore.globalImageFileSize ? formatFileSize(imageStore.globalImageFileSize) : '未知'
+    
+    const fileData = {
+      file: null,
+      dataURL: globalImage,
+      name: globalName,
+      size: globalSize,
+      bytes: imageStore.globalImageFileSize || 0
+    }
+    
+    originalImages.value = [fileData]
+    processedImages.value = [{
+      original: fileData,
+      processed: null,
+      processedSize: '',
+      savings: 0,
+      savingsPercent: 0
+    }]
+    
+    await updateAllPreview()
+    showToast('已从全局加载图片', 'info')
+  }
+}
+
+onMounted(() => {
+  initFromGlobalImage()
+})
+
+watch(() => imageStore.globalImage, () => {
+  if (originalImages.value.length === 0) {
+    initFromGlobalImage()
+  }
+}, { immediate: false })
+
 const onFilesSelected = async (files) => {
+  if (files.length === 0) return
+  
   originalImages.value = files.map(f => ({
     file: f.file,
     dataURL: f.dataURL,
     name: f.name,
     size: f.size,
-    bytes: f.file.size
+    bytes: f.file?.size || 0
   }))
 
   processedImages.value = originalImages.value.map(img => ({
@@ -205,6 +247,10 @@ const onFilesSelected = async (files) => {
     savings: 0,
     savingsPercent: 0
   }))
+
+  if (files.length === 1) {
+    imageStore.setGlobalImage(files[0].dataURL, files[0].name, files[0].file?.size)
+  }
 
   await updateAllPreview()
   showToast(`已加载 ${files.length} 张图片`, 'success')
@@ -241,14 +287,14 @@ const processImage = async (index) => {
     
     const processedBlob = await dataURLToBlob(result.dataURL, exportFormat.value, quality.value)
     const processedBytes = processedBlob.size
-    const originalBytes = item.original.bytes
+    const originalBytes = item.original.bytes || 0
     const savings = originalBytes - processedBytes
-    const savingsPercent = Math.round((savings / originalBytes) * 100)
+    const savingsPercent = originalBytes > 0 ? Math.round((savings / originalBytes) * 100) : 0
 
     processedImages.value[index] = {
       ...item,
       processed: result,
-      processedSize: formatBytes(processedBytes),
+      processedSize: formatFileSize(processedBytes),
       savings,
       savingsPercent
     }
@@ -256,14 +302,6 @@ const processImage = async (index) => {
     console.error('Compress error:', e)
     showToast('图片压缩失败', 'error')
   }
-}
-
-const formatBytes = (bytes) => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
 const removeItem = (index) => {
@@ -292,7 +330,7 @@ const downloadSingle = async (index) => {
     
     historyStore.addRecord({
       functionName: '图片压缩',
-      thumbnail: item.processed.dataURL.slice(0, 500)
+      fullImage: item.processed.dataURL
     })
     
     showToast('下载成功', 'success')

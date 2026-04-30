@@ -149,7 +149,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, watch } from 'vue'
+import { ref, computed, inject, watch, onMounted, nextTick } from 'vue'
 import { useImageStore } from '@/stores/image'
 import { useHistoryStore } from '@/stores/history'
 import { 
@@ -173,6 +173,41 @@ const processedImage = ref(null)
 const originalWidth = ref(0)
 const originalHeight = ref(0)
 const imgElement = ref(null)
+
+const initFromGlobalImage = async () => {
+  if (imageStore.hasGlobalImage && !originalImage.value) {
+    const dataURL = imageStore.globalImage
+    originalImage.value = dataURL
+    
+    const img = await dataURLToImage(dataURL)
+    imgElement.value = img
+    originalWidth.value = img.width
+    originalHeight.value = img.height
+    
+    cropX.value = 0
+    cropY.value = 0
+    cropWidth.value = img.width
+    cropHeight.value = img.height
+    rotation.value = 0
+    flipX.value = false
+    flipY.value = false
+    
+    imageStore.setOriginalImage(dataURL)
+    processedImage.value = dataURL
+    
+    showToast('已载入全局图片', 'success')
+  }
+}
+
+onMounted(() => {
+  initFromGlobalImage()
+})
+
+watch(() => imageStore.globalImage, () => {
+  if (!originalImage.value) {
+    initFromGlobalImage()
+  }
+}, { immediate: false })
 
 const cropX = ref(0)
 const cropY = ref(0)
@@ -215,6 +250,7 @@ const onFilesSelected = async (files) => {
   flipY.value = false
   
   imageStore.setOriginalImage(file.dataURL)
+  imageStore.setGlobalImage(file.dataURL, file.name, file.file?.size)
   processedImage.value = file.dataURL
   
   showToast('图片加载成功', 'success')
@@ -346,7 +382,7 @@ const handleExport = async () => {
     
     historyStore.addRecord({
       functionName: '图片裁剪',
-      thumbnail: processedImage.value.slice(0, 500)
+      fullImage: processedImage.value
     })
     
     showToast('导出成功', 'success')
